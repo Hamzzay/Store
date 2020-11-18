@@ -1,0 +1,326 @@
+import React from 'react';
+import {
+  View,
+  Image,
+  TouchableOpacity,
+  TouchableHighlight,
+  Alert,
+  StyleSheet,
+} from 'react-native';
+import {
+  Container,
+  Content,
+  Button,
+  Item,
+  Input,
+  Label,
+  Picker,
+  Grid,
+  Col,
+  Header,
+  Title,
+  Icon,
+  Right,
+  Body,
+  Left,
+} from 'native-base';
+import {SwipeListView} from 'react-native-swipe-list-view';
+import Loader from '../Controls/Loader';
+import { Dialog } from 'react-native-simple-dialogs';
+import {inject, observer} from 'mobx-react';
+import MainStyle, {mainColor} from '../StyleSheets/MainStyle';
+
+import {SessionRanges} from '../Constants';
+
+import Text from '../elements/Text';
+import GradientButton from '../elements/GradientButton';
+import GradientNavigationBar from '../elements/GradientNavigationBar';
+
+import {shadowOpt} from '../styles/variables';
+
+import {delay} from '../Utils';
+import Toast from 'react-native-root-toast';
+import locationHelper from '../Services/LocationHelper';
+
+const HostOptionScreen = observer(
+  class HostOptionScreen extends React.Component {
+    static navigationOptions = {headerShown: false};
+
+    willFocus = this.props.navigation.addListener('willFocus', () => {
+      this.forceUpdate();
+    });
+
+    didFocusSubscription = this.props.navigation.addListener('didFocus', () => {
+      // const sessionSetup = this.props.store.sessionSetup;
+      // sessionSetup.startLocationUpdates(err => { });
+    });
+
+    didBlurSubscription = this.props.navigation.addListener('didBlur', () => {
+      const sessionSetup = this.props.store.sessionSetup;
+      sessionSetup.save();
+    });
+
+    componentDidMount() {
+      const sessionSetup = this.props.store.sessionSetup;
+      sessionSetup.load();
+    }
+    componentWillUnmount() {
+      this.willFocus.remove();
+      this.didBlurSubscription.remove();
+      this.didFocusSubscription.remove();
+    }
+
+    createSession = async () => {
+      const {loginScreenViewModel} = this.props.store;
+      if (
+        !loginScreenViewModel.isOnTrial() &&
+        !loginScreenViewModel.isActivated
+      ) {
+        Toast.show('License Activation is required.');
+        return;
+      }
+      const {uid} = loginScreenViewModel.firebaseUser;
+
+      const sessionSetup = this.props.store.sessionSetup;
+      const {name} = sessionSetup;
+      if (name == '') {
+        Toast.show('Enter Session Name');
+        return;
+      }
+      const joinSessionSetup = this.props.store.joinSessionSetup;
+      if (await joinSessionSetup.isNameDuplicate(name, uid)) {
+        Toast.show('The Session Name is already exists.');
+        return;
+      }
+
+      const {navigate} = this.props.navigation;
+      sessionSetup.setLoading(true);
+      sessionSetup.createSession(
+        uid,
+        () => {
+          sessionSetup.setLoading(false);
+          navigate('HostGame', {
+            sessionName: sessionSetup.name,
+            latitude: locationHelper.latitude,
+            longitude: locationHelper.longitude,
+            hostMode: true,
+          });
+        },
+        err => {
+          sessionSetup.setLoading(false);
+          delay(100).then(() => Alert.alert('Error', err));
+        },
+      );
+    };
+
+    render() {
+      const {navigate} = this.props.navigation;
+      const sessionRangesItems = SessionRanges.map((s, i) => {
+        return <Picker.Item key={i} value={s.value} label={s.label} />;
+      });
+      const sessionSetup = this.props.store.sessionSetup;
+      return (
+        <Container>
+          <GradientNavigationBar
+            navigation={this.props.navigation}
+            back
+            titleText="Create session"
+          />
+          <Loader loading={sessionSetup.loading} />
+          <Content padder>
+            <View style={styles.view}>
+              <Item floatingLabel style={MainStyle.marginV10}>
+                <Label style={MainStyle.labelColor}>Enter Session Name</Label>
+                <Input
+                  autoCapitalize="none"
+                  value={sessionSetup.name}
+                  onChangeText={sessionSetup.setName}
+                />
+              </Item>
+              <Item floatingLabel style={MainStyle.marginV10}>
+                <Label style={MainStyle.labelColor}>Session Password</Label>
+                <Input
+                  autoCapitalize="none"
+                  secureTextEntry={true}
+                  value={sessionSetup.password}
+                  onChangeText={sessionSetup.setPassword}
+                />
+              </Item>
+              <Item picker style={[MainStyle.marginV10, styles.item]}>
+                <Label style={MainStyle.labelColor}>Session Range</Label>
+                <Picker
+                  mode="dialog"
+                  renderHeader={backAction => (
+                    <Header style={{backgroundColor: mainColor}}>
+                      <Left>
+                        <Button transparent onPress={backAction}>
+                          <Icon name="arrow-back" style={{color: '#fff'}} />
+                        </Button>
+                      </Left>
+                      <Body style={{flex: 3, alignItems: 'center'}}>
+                        <Title style={{color: '#fff'}}>Select Range</Title>
+                      </Body>
+                      <Right />
+                    </Header>
+                  )}
+                  placeholder="SESSION RANGE"
+                  placeholderStyle={styles.itemPlaceHolder}
+                  placeholderIconColor="black"
+                  selectedValue={sessionSetup.range}
+                  onValueChange={newRange => sessionSetup.setRange(newRange)}>
+                  {sessionRangesItems}
+                </Picker>
+              </Item>
+
+              <Label
+                style={
+                  (MainStyle.labelColor,
+                  {alignSelf: 'flex-start', marginVertical: 20})
+                }>
+                Current Hazards
+              </Label>
+              <SwipeListView
+                data={sessionSetup.gasItems}
+                renderItem={data =>
+                  data.item.isOxygen ? (
+                    <Grid style={MainStyle.rowFront}>
+                      <Col>
+                        <Text>{data.item.gasName}</Text>
+                      </Col>
+                      <Col>
+                        <Text>{data.item.minAlarm}</Text>
+                      </Col>
+                      <Col>
+                        <Text>{data.item.maxAlarm}</Text>
+                      </Col>
+                      <Col>
+                        <Text>{data.item.gasScale}</Text>
+                      </Col>
+                    </Grid>
+                  ) : (
+                    <Grid style={MainStyle.rowFront}>
+                      <Col>
+                        <Text>{data.item.gasName}</Text>
+                      </Col>
+                      <Col>
+                        <Text />
+                      </Col>
+                      <Col>
+                        <Text>{data.item.maxAlarm}</Text>
+                      </Col>
+                      <Col>
+                        <Text>{data.item.gasScale}</Text>
+                      </Col>
+                    </Grid>
+                  )
+                }
+                renderHiddenItem={data => (
+                  <View style={MainStyle.rowBack}>
+                    <Button
+                      block
+                      warning
+                      onPress={() => {
+                        sessionSetup.selectGasForEdit(data.item);
+                        navigate('GasAdd', {
+                          editMode: true,
+                        });
+                      }}>
+                      <Text style={styles.hiddenItemText}> Edit </Text>
+                    </Button>
+                    <Button
+                      block
+                      danger
+                      onPress={() => {
+                        sessionSetup.removeGasItem(data.item);
+                        this.forceUpdate();
+                      }}>
+                      <Text style={styles.hiddenItemText}>Delete</Text>
+                    </Button>
+                  </View>
+                )}
+                leftOpenValue={0}
+                rightOpenValue={-150}
+                closeOnScroll={true}
+                closeOnRowOpen={true}
+                disableRightSwipe={true}
+                closeOnRowBeginSwipe={true}
+                scrollEnabled={false}
+                style={styles.listView}
+              />
+
+              <TouchableOpacity
+                onPress={() => {
+                  sessionSetup.createNewGas();
+                  navigate('GasAdd', {
+                    editMode: false,
+                  });
+                }}>
+                <Image
+                  style={styles.addIcon}
+                  source={require('../..//img/healer/add.png')}
+                />
+              </TouchableOpacity>
+
+              <TouchableHighlight
+                underlayColor={'transparent'}
+                onPress={() => {
+                  sessionSetup.createNewGas();
+                  navigate('GasAdd', {
+                    editMode: false,
+                  });
+                }}>
+                <Image
+                  source={require('../../img/healer/icAdd.png')}
+                  style={styles.icAddIcon}
+                />
+              </TouchableHighlight>
+
+              <View style={MainStyle.marginT10}>
+                <GradientButton
+                  onPressButton={this.createSession.bind(this)}
+                  setting={shadowOpt}
+                  btnText="Start Session"
+                />
+              </View>
+            </View>
+          </Content>
+        </Container>
+      );
+    }
+  },
+);
+
+const styles = StyleSheet.create({
+  view: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  item: {
+    width: '100%',
+  },
+  itemHeader: {
+    backgroundColor: mainColor,
+    alignItems: 'center',
+  },
+  itemPlaceHolder: {
+    color: 'black',
+  },
+  hiddenItemText: {
+    color: '#fff',
+  },
+  listView: {
+    alignSelf: 'stretch',
+    marginVertical: 10,
+  },
+  addIcon: {
+    height: 60,
+    width: 60,
+  },
+  icAddIcon: {
+    width: 70,
+    height: 75,
+  },
+});
+
+export default inject('store')(HostOptionScreen);
